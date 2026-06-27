@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 
 struct ProfitDashboardView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Query(sort: \Product.sortOrder) private var products: [Product]
     @Query(sort: \SaleRecord.soldAt, order: .reverse) private var orders: [SaleRecord]
 
@@ -129,7 +130,12 @@ struct ProfitDashboardView: View {
                 }
             }
             .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .shadow(color: .black.opacity(0.06), radius: 12, x: 0, y: 4)
+            .shadow(
+                color: .black.opacity(colorScheme == .dark ? 0.28 : 0.06),
+                radius: colorScheme == .dark ? 8 : 12,
+                x: 0,
+                y: colorScheme == .dark ? 2 : 4
+            )
         }
     }
 

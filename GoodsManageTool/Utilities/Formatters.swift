@@ -6,6 +6,30 @@ enum PriceFormatter {
     }
 }
 
+enum AppDateFormatter {
+    private static let chineseLocale = Locale(identifier: "zh_Hans_CN")
+
+    static func orderSectionTitle(for date: Date) -> String {
+        date.formatted(
+            .dateTime
+                .year()
+                .month()
+                .day()
+                .weekday(.wide)
+                .locale(chineseLocale)
+        )
+    }
+
+    static func orderTime(for date: Date) -> String {
+        date.formatted(
+            .dateTime
+                .hour()
+                .minute()
+                .locale(chineseLocale)
+        )
+    }
+}
+
 extension Product {
     var stockStatusText: String {
         if isOutOfStock {

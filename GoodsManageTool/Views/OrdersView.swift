@@ -32,7 +32,7 @@ struct OrdersView: View {
 
                         List {
                             ForEach(groupedOrders, id: \.date) { group in
-                                Section(group.date.formatted(date: .complete, time: .omitted)) {
+                                Section(AppDateFormatter.orderSectionTitle(for: group.date)) {
                                     ForEach(group.records) { record in
                                         Button {
                                             editingRecord = record
@@ -103,7 +103,7 @@ private struct OrderRowView: View {
                     .lineLimit(2)
 
                 HStack(spacing: 8) {
-                    Text(record.soldAt.formatted(date: .omitted, time: .shortened))
+                    Text(AppDateFormatter.orderTime(for: record.soldAt))
                     Text("·")
                     Text(record.saleType.rawValue)
                     Text("·")

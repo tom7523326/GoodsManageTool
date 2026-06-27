@@ -11,6 +11,8 @@ final class Product {
     @Attribute(.externalStorage) var imageData: Data?
     var createdAt: Date
     var sortOrder: Int
+    var isSample: Bool = false
+    var barcode: String?
 
     @Relationship(deleteRule: .cascade, inverse: \SaleRecord.product)
     var saleRecords: [SaleRecord] = []
@@ -25,7 +27,9 @@ final class Product {
         sellPrice: Double,
         stockQuantity: Int,
         imageData: Data? = nil,
-        sortOrder: Int = 0
+        sortOrder: Int = 0,
+        isSample: Bool = false,
+        barcode: String? = nil
     ) {
         self.title = title
         self.spec = spec
@@ -35,6 +39,8 @@ final class Product {
         self.imageData = imageData
         self.createdAt = Date()
         self.sortOrder = sortOrder
+        self.isSample = isSample
+        self.barcode = barcode
     }
 
     var isLowStock: Bool {

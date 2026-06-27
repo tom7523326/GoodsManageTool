@@ -8,6 +8,7 @@ final class SaleRecord {
     var quantity: Int
     var unitPrice: Double
     var totalPrice: Double
+    var costPriceAtSale: Double = 0
     var soldAt: Date
     var product: Product?
 
@@ -23,6 +24,7 @@ final class SaleRecord {
         self.quantity = quantity
         self.unitPrice = unitPrice
         self.totalPrice = Double(quantity) * unitPrice
+        self.costPriceAtSale = product.costPrice
         self.soldAt = Date()
         self.product = product
     }
@@ -33,5 +35,10 @@ final class SaleRecord {
 
     var ageGroup: AgeGroup {
         AgeGroup(rawValue: ageGroupRaw) ?? .age10to20
+    }
+
+    var effectiveCostPrice: Double {
+        if costPriceAtSale > 0 { return costPriceAtSale }
+        return product?.costPrice ?? 0
     }
 }

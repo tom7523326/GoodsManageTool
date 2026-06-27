@@ -7,6 +7,16 @@ struct InventoryManageView: View {
 
     @State private var showingAddProduct = false
     @State private var selectedProduct: Product?
+    @State private var showClearSamplesConfirm = false
+    @State private var showClearSamplesSuccess = false
+    @State private var showClearSamplesError = false
+    @State private var productsPendingDelete: [Product] = []
+    @State private var showDeleteConfirm = false
+    @State private var deleteErrorMessage: String?
+
+    private var hasSampleProducts: Bool {
+        SampleDataService.hasSampleProducts(in: products)
+    }
 
     var body: some View {
         NavigationStack {
@@ -22,6 +32,11 @@ struct InventoryManageView: View {
                         inventorySummary
                             .padding(.horizontal, 16)
 
+                        if hasSampleProducts {
+                            sampleClearBanner
+                                .padding(.horizontal, 16)
+                        }
+
                         List {
                             Section("全部商品") {
                                 ForEach(products) { product in
@@ -34,7 +49,7 @@ struct InventoryManageView: View {
                                     }
                                     .buttonStyle(.plain)
                                 }
-                                .onDelete(perform: deleteProducts)
+                                .onDelete(perform: requestDelete)
                             }
                         }
                         .listStyle(.insetGrouped)
@@ -48,7 +63,10 @@ struct InventoryManageView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    AdminToolbarMenu()
+                    AdminToolbarMenu(
+                        hasSampleProducts: hasSampleProducts,
+                        onClearSamples: { showClearSamplesConfirm = true }
+                    )
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -66,7 +84,113 @@ struct InventoryManageView: View {
             .sheet(item: $selectedProduct) { product in
                 ProductDetailManageView(product: product)
             }
+            .confirmationDialog(
+                "清除示例数据？",
+                isPresented: $showClearSamplesConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("清除示例商品", role: .destructive) {
+                    clearSampleProducts()
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("将删除所有示例商品及其销售、库存记录，此操作不可撤销。")
+            }
+            .alert("已清除示例数据", isPresented: $showClearSamplesSuccess) {
+                Button("好的", role: .cancel) {}
+            } message: {
+                Text("请添加你的商品，开始真实摆摊。")
+            }
+            .alert("操作失败", isPresented: $showClearSamplesError) {
+                Button("好的", role: .cancel) {}
+            } message: {
+                Text("清除示例数据失败，请稍后重试。")
+            }
+            .confirmationDialog(
+                deleteConfirmationTitle,
+                isPresented: $showDeleteConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("删除商品", role: .destructive) {
+                    confirmDeleteProducts()
+                }
+                Button("取消", role: .cancel) {
+                    productsPendingDelete = []
+                }
+            } message: {
+                Text(deleteConfirmationMessage)
+            }
+            .alert("删除失败", isPresented: .init(
+                get: { deleteErrorMessage != nil },
+                set: { if !$0 { deleteErrorMessage = nil } }
+            )) {
+                Button("好的", role: .cancel) {}
+            } message: {
+                Text(deleteErrorMessage ?? "")
+            }
         }
+    }
+
+    private var deleteConfirmationTitle: String {
+        productsPendingDelete.count > 1 ? "删除 \(productsPendingDelete.count) 个商品？" : "删除商品？"
+    }
+
+    private var deleteConfirmationMessage: String {
+        let saleCount = productsPendingDelete.reduce(0) { $0 + $1.saleRecords.count }
+        if saleCount > 0 {
+            return "将同时删除 \(saleCount) 笔关联订单记录，此操作不可撤销。"
+        }
+        return "删除后无法恢复，请确认。"
+    }
+
+    private func requestDelete(at offsets: IndexSet) {
+        productsPendingDelete = offsets.map { products[$0] }
+        showDeleteConfirm = true
+    }
+
+    private func confirmDeleteProducts() {
+        for product in productsPendingDelete {
+            modelContext.delete(product)
+        }
+        productsPendingDelete = []
+
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            deleteErrorMessage = "删除失败，请重试"
+        }
+    }
+
+    private func clearSampleProducts() {
+        do {
+            try SampleDataService.clearSampleProducts(context: modelContext)
+            showClearSamplesSuccess = true
+        } catch {
+            showClearSamplesError = true
+        }
+    }
+
+    private var sampleClearBanner: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("含 \(products.filter(\.isSample).count) 款示例商品")
+                    .font(.subheadline.weight(.semibold))
+                Text("清除后可添加你自己的商品")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+
+            Button("清除示例", role: .destructive) {
+                showClearSamplesConfirm = true
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(14)
+        .background(AppTheme.warning.opacity(0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var inventorySummary: some View {
@@ -90,13 +214,6 @@ struct InventoryManageView: View {
         }
         .frame(maxWidth: .infinity)
     }
-
-    private func deleteProducts(at offsets: IndexSet) {
-        for index in offsets {
-            modelContext.delete(products[index])
-        }
-        try? modelContext.save()
-    }
 }
 
 private struct InventoryRowView: View {
@@ -107,10 +224,15 @@ private struct InventoryRowView: View {
             ProductThumbnailView(product: product, size: 56, cornerRadius: 12)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(product.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
+                HStack(spacing: 6) {
+                    Text(product.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                    if product.isSample {
+                        SampleBadge()
+                    }
+                }
 
                 Text(product.spec)
                     .font(.caption)

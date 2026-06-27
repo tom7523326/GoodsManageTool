@@ -6,7 +6,7 @@ struct CustomerShowcaseView: View {
     @Query(sort: \Product.sortOrder) private var products: [Product]
 
     private var rankedProducts: [ProductStats] {
-        BusinessStats.productStats(from: products)
+        BusinessStats.todayProductStats(from: products)
             .sorted { lhs, rhs in
                 if lhs.soldQuantity == rhs.soldQuantity {
                     return lhs.product.sortOrder < rhs.product.sortOrder
@@ -49,7 +49,7 @@ struct CustomerShowcaseView: View {
                 .padding(.horizontal)
                 .padding(.bottom, 24)
             }
-            .background(AppTheme.showcaseGradient.ignoresSafeArea())
+            .background(ShowcasePageBackground().ignoresSafeArea())
             .navigationTitle("商品展示")
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -94,6 +94,8 @@ struct CustomerShowcaseView: View {
 }
 
 private struct ShowcaseProductCard: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let stats: ProductStats
     let rank: Int
 
@@ -112,6 +114,12 @@ private struct ShowcaseProductCard: View {
                     .foregroundStyle(.white)
                     .padding(6)
             }
+            .overlay(alignment: .topTrailing) {
+                if stats.product.isSample {
+                    SampleBadge()
+                        .padding(6)
+                }
+            }
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
@@ -123,10 +131,15 @@ private struct ShowcaseProductCard: View {
                     Spacer(minLength: 0)
                 }
 
-                Text(stats.product.title)
-                    .font(.headline)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    Text(stats.product.title)
+                        .font(.headline)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if stats.product.isSample {
+                        SampleBadge()
+                    }
+                }
 
                 Text(stats.product.spec)
                     .font(.caption)
@@ -159,7 +172,12 @@ private struct ShowcaseProductCard: View {
         }
         .padding(14)
         .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 4)
+        .shadow(
+            color: .black.opacity(colorScheme == .dark ? 0.28 : 0.08),
+            radius: colorScheme == .dark ? 8 : 12,
+            x: 0,
+            y: colorScheme == .dark ? 2 : 4
+        )
     }
 }
 

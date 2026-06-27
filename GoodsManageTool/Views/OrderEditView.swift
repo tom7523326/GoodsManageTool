@@ -14,6 +14,7 @@ struct OrderEditView: View {
     @State private var soldAt: Date
     @State private var errorMessage: String?
     @State private var showSaveConfirmation = false
+    @State private var showDeleteConfirmation = false
 
     init(record: SaleRecord) {
         self.record = record
@@ -46,15 +47,20 @@ struct OrderEditView: View {
         Double(quantity) * unitPrice
     }
 
+    private var isFormValid: Bool {
+        if saleType == .discount {
+            guard let price = Double(discountPriceText.replacingOccurrences(of: ",", with: ".")), price > 0 else {
+                return false
+            }
+        }
+        return true
+    }
+
     var body: some View {
         NavigationStack {
             Group {
                 if product == nil {
-                    ContentUnavailableView(
-                        "无法编辑",
-                        systemImage: "exclamationmark.triangle",
-                        description: Text("关联商品已删除")
-                    )
+                    orphanedOrderView
                 } else {
                     editForm
                 }
@@ -68,7 +74,7 @@ struct OrderEditView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") { showSaveConfirmation = true }
-                        .disabled(product == nil || (saleType == .discount && discountPriceText.isEmpty))
+                        .disabled(product == nil || !isFormValid)
                 }
             }
             .alert("保存修改？", isPresented: $showSaveConfirmation) {
@@ -77,8 +83,50 @@ struct OrderEditView: View {
             } message: {
                 Text("将同步更新库存与成交数据")
             }
+            .confirmationDialog(
+                "删除此订单？",
+                isPresented: $showDeleteConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("删除订单", role: .destructive) {
+                    deleteOrder()
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text(deleteConfirmationMessage)
+            }
         }
         .presentationDetents([.large])
+    }
+
+    private var deleteConfirmationMessage: String {
+        if let product {
+            return "将删除这笔订单，并把 \(record.quantity) 件「\(product.title)」退回库存。"
+        }
+        return "关联商品已不存在，将仅删除这笔订单记录。"
+    }
+
+    private var orphanedOrderView: some View {
+        VStack(spacing: 24) {
+            ContentUnavailableView(
+                "无法编辑",
+                systemImage: "exclamationmark.triangle",
+                description: Text("关联商品已删除，可删除此订单记录")
+            )
+
+            Button("删除此订单", role: .destructive) {
+                showDeleteConfirmation = true
+            }
+            .buttonStyle(.bordered)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.danger)
+                    .padding(.horizontal)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var editForm: some View {
@@ -143,7 +191,7 @@ struct OrderEditView: View {
                     Text("成交时间")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    DatePicker("成交时间", selection: $soldAt, displayedComponents: [.date, .hourAndMinute])
+                    DatePicker("成交时间", selection: $soldAt, in: ...Date(), displayedComponents: [.date, .hourAndMinute])
                         .datePickerStyle(.compact)
                         .labelsHidden()
                 }
@@ -175,6 +223,17 @@ struct OrderEditView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 4)
                 }
+
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Text("删除此订单")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+                .buttonStyle(.bordered)
+                .padding(.top, 8)
             }
             .padding()
         }
@@ -193,7 +252,22 @@ struct OrderEditView: View {
             try modelContext.save()
             dismiss()
         } catch {
+            modelContext.rollback()
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func deleteOrder() {
+        errorMessage = nil
+        OrderEditService.restoreStock(for: record)
+        modelContext.delete(record)
+
+        do {
+            try modelContext.save()
+            dismiss()
+        } catch {
+            modelContext.rollback()
+            errorMessage = "删除失败，请重试"
         }
     }
 }

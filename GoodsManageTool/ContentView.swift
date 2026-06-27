@@ -1,16 +1,27 @@
-//
-//  ContentView.swift
-//  GoodsManageTool
-//
-//  Created by 汤寿麟 on 2026/6/21.
-//
-
 import SwiftUI
 import SwiftData
 
 struct ContentView: View {
+    @Environment(\.modelContext) private var modelContext
+    @State private var hasCompletedOnboarding = OnboardingStore.hasCompletedOnboarding
+
     var body: some View {
-        MainTabView()
+        Group {
+            if hasCompletedOnboarding {
+                MainTabView()
+            } else {
+                WelcomeView {
+                    hasCompletedOnboarding = true
+                }
+            }
+        }
+        .onAppear {
+            OnboardingStore.migrateLegacyInstallIfNeeded()
+            if OnboardingStore.hasCompletedOnboarding {
+                hasCompletedOnboarding = true
+            }
+            SeedData.prepareOnLaunch(context: modelContext)
+        }
     }
 }
 

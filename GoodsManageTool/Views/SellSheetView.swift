@@ -7,11 +7,16 @@ struct SellSheetView: View {
 
     let product: Product
 
-    @State private var saleType: SaleType = .original
-    @State private var ageGroup: AgeGroup = .age10to20
+    @State private var saleType: SaleType = SellPreferences.loadSaleType()
+    @State private var ageGroup: AgeGroup = SellPreferences.loadAgeGroup()
     @State private var quantity = 1
     @State private var discountPriceText = ""
     @State private var showConfirmation = false
+    @State private var useCashPayment = false
+    @State private var cashReceivedText = ""
+    @State private var saveErrorMessage: String?
+
+    private let quickQuantities = [1, 2, 3, 5, 10]
 
     private var unitPrice: Double {
         switch saleType {
@@ -26,6 +31,15 @@ struct SellSheetView: View {
 
     private var totalPrice: Double {
         Double(quantity) * unitPrice
+    }
+
+    private var cashReceived: Double? {
+        Double(cashReceivedText.replacingOccurrences(of: ",", with: "."))
+    }
+
+    private var changeAmount: Double? {
+        guard useCashPayment, let received = cashReceived else { return nil }
+        return received - totalPrice
     }
 
     var body: some View {
@@ -58,23 +72,18 @@ struct SellSheetView: View {
                     ChipSelector(title: "购买人群", items: AgeGroup.allCases, selection: $ageGroup)
                         .appCard()
 
-                    VStack(spacing: 14) {
-                        HStack {
-                            Text("卖出数量")
-                                .font(.subheadline.weight(.semibold))
-                            Spacer()
-                            Text("\(quantity) 件")
-                                .font(.headline)
-                                .foregroundStyle(AppTheme.accentDark)
-                        }
+                    quantityCard
 
-                        Stepper(value: $quantity, in: 1...max(product.stockQuantity, 1)) {
-                            EmptyView()
-                        }
-                    }
-                    .appCard()
+                    cashPaymentCard
 
                     checkoutCard
+
+                    if let saveErrorMessage {
+                        Text(saveErrorMessage)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.danger)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
                 .padding()
             }
@@ -96,7 +105,7 @@ struct SellSheetView: View {
                 Button("确认", role: .destructive) { completeSale() }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("\(product.title)\n\(saleType.rawValue) · \(ageGroup.rawValue)\n\(quantity) 件 · 合计 \(PriceFormatter.string(totalPrice))")
+                Text(confirmationMessage)
             }
         }
         .presentationDetents([.large])
@@ -107,9 +116,14 @@ struct SellSheetView: View {
         HStack(spacing: 14) {
             ProductThumbnailView(product: product, size: 72, cornerRadius: 16)
             VStack(alignment: .leading, spacing: 6) {
-                Text(product.title)
-                    .font(.headline)
-                    .lineLimit(2)
+                HStack(spacing: 8) {
+                    Text(product.title)
+                        .font(.headline)
+                        .lineLimit(2)
+                    if product.isSample {
+                        SampleBadge()
+                    }
+                }
                 Text(product.spec)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -118,6 +132,81 @@ struct SellSheetView: View {
                     .foregroundStyle(AppTheme.accentDark)
             }
             Spacer()
+        }
+        .appCard()
+    }
+
+    private var quantityCard: some View {
+        VStack(spacing: 14) {
+            HStack {
+                Text("卖出数量")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("\(quantity) 件")
+                    .font(.headline)
+                    .foregroundStyle(AppTheme.accentDark)
+            }
+
+            HStack(spacing: 8) {
+                ForEach(quickQuantities, id: \.self) { value in
+                    Button {
+                        quantity = min(max(value, 1), max(product.stockQuantity, 1))
+                    } label: {
+                        Text("\(value)")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(
+                                quantity == value ? AppTheme.accent.opacity(0.15) : Color(.tertiarySystemFill),
+                                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            )
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(quantity == value ? AppTheme.accent : Color.clear, lineWidth: 1.5)
+                            }
+                            .foregroundStyle(quantity == value ? AppTheme.accentDark : .primary)
+                            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(value > product.stockQuantity)
+                }
+            }
+
+            Stepper(value: $quantity, in: 1...max(product.stockQuantity, 1)) {
+                EmptyView()
+            }
+        }
+        .appCard()
+    }
+
+    private var cashPaymentCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle("现金收款", isOn: $useCashPayment)
+
+            if useCashPayment {
+                HStack {
+                    Text("收到")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("¥")
+                        .foregroundStyle(.secondary)
+                    TextField("0.00", text: $cashReceivedText)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: 120)
+                }
+
+                if let changeAmount {
+                    HStack {
+                        Text("找零")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Text(PriceFormatter.string(max(changeAmount, 0)))
+                            .font(.headline)
+                            .foregroundStyle(changeAmount >= 0 ? AppTheme.success : AppTheme.danger)
+                    }
+                }
+            }
         }
         .appCard()
     }
@@ -156,14 +245,39 @@ struct SellSheetView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(product.stockQuantity < quantity || (saleType == .discount && discountPriceText.isEmpty))
+        .disabled(!canConfirm)
         .padding(.horizontal)
         .padding(.top, 8)
         .padding(.bottom, 12)
         .background(.ultraThinMaterial)
     }
 
+    private var canConfirm: Bool {
+        if product.stockQuantity < quantity { return false }
+        if saleType == .discount {
+            guard let price = parsedDiscountPrice, price > 0 else { return false }
+        }
+        if useCashPayment {
+            guard let received = cashReceived else { return false }
+            return received >= totalPrice
+        }
+        return true
+    }
+
+    private var parsedDiscountPrice: Double? {
+        Double(discountPriceText.replacingOccurrences(of: ",", with: "."))
+    }
+
+    private var confirmationMessage: String {
+        var message = "\(product.title)\n\(saleType.rawValue) · \(ageGroup.rawValue)\n\(quantity) 件 · 合计 \(PriceFormatter.string(totalPrice))"
+        if useCashPayment, let changeAmount, changeAmount >= 0 {
+            message += "\n找零 \(PriceFormatter.string(changeAmount))"
+        }
+        return message
+    }
+
     private func completeSale() {
+        saveErrorMessage = nil
         let record = SaleRecord(
             saleType: saleType,
             ageGroup: ageGroup,
@@ -173,8 +287,16 @@ struct SellSheetView: View {
         )
         product.stockQuantity -= quantity
         modelContext.insert(record)
-        try? modelContext.save()
-        dismiss()
+
+        do {
+            try modelContext.save()
+            SellPreferences.save(saleType: saleType, ageGroup: ageGroup)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            dismiss()
+        } catch {
+            modelContext.rollback()
+            saveErrorMessage = "保存失败，请重试"
+        }
     }
 }
 

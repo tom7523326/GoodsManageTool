@@ -4,21 +4,21 @@ import SwiftData
 enum SeedData {
     private static let seededKey = "hasSeededInitialProducts"
     private static let imagesAttachedKey = "hasAttachedProductImages_v3"
+    private static let sampleFlagsBackfilledKey = "hasBackfilledSampleFlags"
+    private static let costPriceBackfilledKey = "hasBackfilledCostPriceAtSale"
 
-    static func seedIfNeeded(context: ModelContext) {
-        seedProductsIfNeeded(context: context)
+    static let sampleProductTitles: Set<String> = Set(initialProducts.map(\.title))
+
+    static func prepareOnLaunch(context: ModelContext) {
+        backfillSampleFlagsIfNeeded(context: context)
+        backfillCostPriceAtSaleIfNeeded(context: context)
         attachProductImagesIfNeeded(context: context)
     }
 
-    private static func seedProductsIfNeeded(context: ModelContext) {
-        guard !UserDefaults.standard.bool(forKey: seededKey) else { return }
-
+    static func seedSampleProducts(context: ModelContext) -> Bool {
         let descriptor = FetchDescriptor<Product>()
         let existingCount = (try? context.fetchCount(descriptor)) ?? 0
-        guard existingCount == 0 else {
-            UserDefaults.standard.set(true, forKey: seededKey)
-            return
-        }
+        guard existingCount == 0 else { return false }
 
         initialProducts.enumerated().forEach { index, item in
             context.insert(
@@ -29,14 +29,60 @@ enum SeedData {
                     sellPrice: item.sellPrice,
                     stockQuantity: item.stockQuantity,
                     imageData: loadImageData(named: item.imageName),
-                    sortOrder: index
+                    sortOrder: index,
+                    isSample: true,
+                    barcode: item.barcode
                 )
             )
         }
 
-        try? context.save()
+        guard (try? context.save()) != nil else { return false }
         UserDefaults.standard.set(true, forKey: seededKey)
         UserDefaults.standard.set(true, forKey: imagesAttachedKey)
+        return true
+    }
+
+    private static func backfillCostPriceAtSaleIfNeeded(context: ModelContext) {
+        guard !UserDefaults.standard.bool(forKey: costPriceBackfilledKey) else { return }
+
+        let descriptor = FetchDescriptor<SaleRecord>()
+        guard let records = try? context.fetch(descriptor) else { return }
+
+        var didUpdate = false
+        for record in records {
+            guard record.costPriceAtSale <= 0, let product = record.product else { continue }
+            record.costPriceAtSale = product.costPrice
+            didUpdate = true
+        }
+
+        guard didUpdate else {
+            UserDefaults.standard.set(true, forKey: costPriceBackfilledKey)
+            return
+        }
+
+        guard (try? context.save()) != nil else { return }
+        UserDefaults.standard.set(true, forKey: costPriceBackfilledKey)
+    }
+
+    private static func backfillSampleFlagsIfNeeded(context: ModelContext) {
+        guard !UserDefaults.standard.bool(forKey: sampleFlagsBackfilledKey) else { return }
+
+        let descriptor = FetchDescriptor<Product>()
+        guard let products = try? context.fetch(descriptor) else { return }
+
+        var didUpdate = false
+        for product in products where sampleProductTitles.contains(product.title) {
+            product.isSample = true
+            didUpdate = true
+        }
+
+        guard didUpdate else {
+            UserDefaults.standard.set(true, forKey: sampleFlagsBackfilledKey)
+            return
+        }
+
+        guard (try? context.save()) != nil else { return }
+        UserDefaults.standard.set(true, forKey: sampleFlagsBackfilledKey)
     }
 
     private static func attachProductImagesIfNeeded(context: ModelContext) {
@@ -51,7 +97,7 @@ enum SeedData {
             product.imageData = imageData
         }
 
-        try? context.save()
+        guard (try? context.save()) != nil else { return }
         UserDefaults.standard.set(true, forKey: imagesAttachedKey)
     }
 
@@ -75,6 +121,7 @@ enum SeedData {
         let sellPrice: Double
         let stockQuantity: Int
         let imageName: String
+        let barcode: String
     }
 
     private static let initialProducts: [SeedProduct] = [
@@ -84,7 +131,8 @@ enum SeedData {
             costPrice: 2.94,
             sellPrice: 5,
             stockQuantity: 12,
-            imageName: "product_camera"
+            imageName: "product_camera",
+            barcode: "690000100001"
         ),
         SeedProduct(
             title: "天然水晶宝石矿石标本套装",
@@ -92,7 +140,8 @@ enum SeedData {
             costPrice: 0.96,
             sellPrice: 3,
             stockQuantity: 40,
-            imageName: "product_crystal"
+            imageName: "product_crystal",
+            barcode: "690000100002"
         ),
         SeedProduct(
             title: "方块磁铁益智积木",
@@ -100,7 +149,8 @@ enum SeedData {
             costPrice: 2.34,
             sellPrice: 5,
             stockQuantity: 10,
-            imageName: "product_magnet_block"
+            imageName: "product_magnet_block",
+            barcode: "690000100003"
         ),
         SeedProduct(
             title: "俄罗斯掌上方块游戏机",
@@ -108,7 +158,8 @@ enum SeedData {
             costPrice: 3,
             sellPrice: 5,
             stockQuantity: 10,
-            imageName: "product_game_console"
+            imageName: "product_game_console",
+            barcode: "690000100004"
         ),
         SeedProduct(
             title: "三角洲磁力火车玩具",
@@ -116,7 +167,8 @@ enum SeedData {
             costPrice: 1.18,
             sellPrice: 3,
             stockQuantity: 20,
-            imageName: "product_train"
+            imageName: "product_train",
+            barcode: "690000100005"
         ),
         SeedProduct(
             title: "咔巴熊趣味躲猫猫中性笔",
@@ -124,7 +176,8 @@ enum SeedData {
             costPrice: 2.05,
             sellPrice: 5,
             stockQuantity: 10,
-            imageName: "product_pen_cat"
+            imageName: "product_pen_cat",
+            barcode: "690000100006"
         ),
         SeedProduct(
             title: "大学之约盲盒笔",
@@ -132,7 +185,8 @@ enum SeedData {
             costPrice: 1,
             sellPrice: 3,
             stockQuantity: 22,
-            imageName: "product_blindbox_pen"
+            imageName: "product_blindbox_pen",
+            barcode: "690000100007"
         )
     ]
 }

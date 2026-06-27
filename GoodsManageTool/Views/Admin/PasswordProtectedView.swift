@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct PasswordProtectedView<Content: View>: View {
     @Bindable var authStore: AdminAuthStore
@@ -43,6 +44,11 @@ private struct AdminLoginView: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
+                if let remaining = authStore.lockoutRemainingSeconds {
+                    Text("请 \(remaining) 秒后再试")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.danger)
+                }
             }
 
             SecureField("管理密码", text: $password)
@@ -64,20 +70,23 @@ private struct AdminLoginView: View {
                     showError = false
                     password = ""
                 } else {
-                    showError = true
+                    showError = authStore.lockoutRemainingSeconds == nil
                 }
             }
             .buttonStyle(.borderedProminent)
             .tint(AppTheme.accent)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 32)
-            .disabled(password.isEmpty)
+            .disabled(password.isEmpty || authStore.lockoutRemainingSeconds != nil)
 
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppTheme.pageBackground.ignoresSafeArea())
         .onAppear { isFocused = true }
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            authStore.refreshLockoutIfNeeded()
+        }
     }
 }
 

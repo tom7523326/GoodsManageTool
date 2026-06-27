@@ -19,8 +19,12 @@ struct ProductEditView: View {
     @State private var costPriceText = ""
     @State private var sellPriceText = ""
     @State private var stockQuantity = 1
+    @State private var barcode = ""
+    @State private var showBarcodeScanner = false
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var imageData: Data?
+    @State private var saveErrorMessage: String?
+    @State private var photoLoadErrorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -28,6 +32,22 @@ struct ProductEditView: View {
                 Section("商品信息") {
                     TextField("商品标题", text: $title)
                     TextField("规格说明", text: $spec)
+                    HStack(spacing: 10) {
+                        TextField("条码（可选）", text: $barcode)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Button {
+                            showBarcodeScanner = true
+                        } label: {
+                            Image(systemName: "barcode.viewfinder")
+                                .font(.title3)
+                                .foregroundStyle(AppTheme.accent)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("扫描条码")
+                    }
                 }
 
                 Section("价格") {
@@ -48,7 +68,14 @@ struct ProductEditView: View {
                 }
 
                 Section("库存") {
-                    Stepper("初始库存 \(stockQuantity)", value: $stockQuantity, in: 0...9999)
+                    if isEditing {
+                        LabeledContent("当前库存", value: "\(stockQuantity) 件")
+                        Text("调整库存请返回详情页，使用「进货 / 出货」")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Stepper("初始库存 \(stockQuantity)", value: $stockQuantity, in: 0...9999)
+                    }
                 }
 
                 Section("商品图") {
@@ -68,6 +95,18 @@ struct ProductEditView: View {
                             Text(imageData == nil ? "选择图片" : "更换图片")
                         }
                     }
+                    if let photoLoadErrorMessage {
+                        Text(photoLoadErrorMessage)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.danger)
+                    }
+                }
+
+                if let saveErrorMessage {
+                    Section {
+                        Text(saveErrorMessage)
+                            .foregroundStyle(AppTheme.danger)
+                    }
                 }
             }
             .navigationTitle(isEditing ? "编辑商品" : "添加商品")
@@ -83,10 +122,23 @@ struct ProductEditView: View {
             }
             .onAppear(perform: loadExistingData)
             .onChange(of: selectedPhoto) { _, newValue in
+                photoLoadErrorMessage = nil
+                guard let newValue else { return }
                 Task {
-                    if let data = try? await newValue?.loadTransferable(type: Data.self) {
-                        imageData = data
+                    do {
+                        if let data = try await newValue.loadTransferable(type: Data.self) {
+                            imageData = data
+                        } else {
+                            photoLoadErrorMessage = "无法读取所选图片"
+                        }
+                    } catch {
+                        photoLoadErrorMessage = "图片加载失败，请重试"
                     }
+                }
+            }
+            .sheet(isPresented: $showBarcodeScanner) {
+                BarcodeScannerView { scannedValue in
+                    barcode = scannedValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
             }
         }
@@ -98,9 +150,24 @@ struct ProductEditView: View {
     }
 
     private var canSave: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && Double(costPriceText.replacingOccurrences(of: ",", with: ".")) != nil
-            && Double(sellPriceText.replacingOccurrences(of: ",", with: ".")) != nil
+        guard
+            let costPrice = Double(costPriceText.replacingOccurrences(of: ",", with: ".")),
+            let sellPrice = Double(sellPriceText.replacingOccurrences(of: ",", with: ".")),
+            costPrice >= 0,
+            sellPrice >= 0
+        else { return false }
+
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { return false }
+
+        let trimmedBarcode = barcode.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedBarcode.isEmpty { return true }
+
+        let excluding: Product? = {
+            if case .edit(let product) = mode { return product }
+            return nil
+        }()
+        return !SampleDataService.isBarcodeTaken(trimmedBarcode, excluding: excluding, in: products)
     }
 
     private func loadExistingData() {
@@ -110,14 +177,34 @@ struct ProductEditView: View {
         costPriceText = String(format: "%.2f", product.costPrice)
         sellPriceText = String(format: "%.2f", product.sellPrice)
         stockQuantity = product.stockQuantity
+        barcode = product.barcode ?? ""
         imageData = product.imageData
     }
 
     private func save() {
+        saveErrorMessage = nil
+
         guard
             let costPrice = Double(costPriceText.replacingOccurrences(of: ",", with: ".")),
-            let sellPrice = Double(sellPriceText.replacingOccurrences(of: ",", with: "."))
-        else { return }
+            let sellPrice = Double(sellPriceText.replacingOccurrences(of: ",", with: ".")),
+            costPrice >= 0,
+            sellPrice >= 0
+        else {
+            saveErrorMessage = "请输入有效的价格"
+            return
+        }
+
+        let trimmedBarcode = barcode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let barcodeValue = trimmedBarcode.isEmpty ? nil : trimmedBarcode
+        let excluding: Product? = {
+            if case .edit(let product) = mode { return product }
+            return nil
+        }()
+
+        if let barcodeValue, SampleDataService.isBarcodeTaken(barcodeValue, excluding: excluding, in: products) {
+            saveErrorMessage = "该条码已被其他商品使用"
+            return
+        }
 
         switch mode {
         case .add:
@@ -128,7 +215,8 @@ struct ProductEditView: View {
                 sellPrice: sellPrice,
                 stockQuantity: stockQuantity,
                 imageData: imageData,
-                sortOrder: products.count
+                sortOrder: products.count,
+                barcode: barcodeValue
             )
             modelContext.insert(product)
         case .edit(let product):
@@ -136,12 +224,17 @@ struct ProductEditView: View {
             product.spec = spec.trimmingCharacters(in: .whitespacesAndNewlines)
             product.costPrice = costPrice
             product.sellPrice = sellPrice
-            product.stockQuantity = stockQuantity
+            product.barcode = barcodeValue
             product.imageData = imageData
         }
 
-        try? modelContext.save()
-        dismiss()
+        do {
+            try modelContext.save()
+            dismiss()
+        } catch {
+            modelContext.rollback()
+            saveErrorMessage = "保存失败，请重试"
+        }
     }
 }
 
@@ -264,6 +357,7 @@ struct StockAdjustView: View {
 
     @State private var quantity = 1
     @State private var note = ""
+    @State private var saveErrorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -278,6 +372,13 @@ struct StockAdjustView: View {
                 Section("操作") {
                     Stepper("\(changeType.rawValue)数量：\(quantity)", value: $quantity, in: 1...9999)
                     TextField("备注（可选）", text: $note)
+                }
+
+                if let saveErrorMessage {
+                    Section {
+                        Text(saveErrorMessage)
+                            .foregroundStyle(AppTheme.danger)
+                    }
                 }
             }
             .navigationTitle(changeType.rawValue)
@@ -296,6 +397,7 @@ struct StockAdjustView: View {
     }
 
     private func applyChange() {
+        saveErrorMessage = nil
         let record = StockRecord(
             changeType: changeType,
             quantity: quantity,
@@ -311,8 +413,14 @@ struct StockAdjustView: View {
         }
 
         modelContext.insert(record)
-        try? modelContext.save()
-        dismiss()
+
+        do {
+            try modelContext.save()
+            dismiss()
+        } catch {
+            modelContext.rollback()
+            saveErrorMessage = "保存失败，请重试"
+        }
     }
 }
 

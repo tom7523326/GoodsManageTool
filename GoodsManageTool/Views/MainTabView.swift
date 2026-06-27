@@ -1,9 +1,11 @@
 import SwiftUI
 import SwiftData
+import Combine
 
 struct MainTabView: View {
     @State private var authStore = AdminAuthStore()
     @State private var selectedTab = 0
+    @Environment(\.scenePhase) private var scenePhase
 
     private let profitTab = 3
     private let inventoryTab = 4
@@ -36,9 +38,12 @@ struct MainTabView: View {
         }
         .tint(AppTheme.accent)
         .environment(authStore)
-        .onChange(of: selectedTab) { oldValue, _ in
-            if oldValue == profitTab || oldValue == inventoryTab {
-                authStore.lock()
+        .onReceive(Timer.publish(every: 15, on: .main, in: .common).autoconnect()) { _ in
+            authStore.invalidateIfExpired()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                authStore.invalidateIfExpired()
             }
         }
     }

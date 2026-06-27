@@ -55,41 +55,50 @@ struct ProductHeroImageView: View {
 }
 
 struct ProductCardView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let product: Product
     let onSell: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 14) {
-                ProductThumbnailView(product: product, size: 80, cornerRadius: 16)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(product.title)
-                        .font(.headline)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Text(product.spec)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-
-                    HStack(spacing: 10) {
-                        Text(PriceFormatter.string(product.sellPrice))
-                            .font(.title3.bold())
-                            .foregroundStyle(AppTheme.accentDark)
-
-                        stockBadge
+        Button(action: onSell) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top, spacing: 14) {
+                    ZStack(alignment: .topLeading) {
+                        ProductThumbnailView(product: product, size: 80, cornerRadius: 16)
+                        if product.isSample {
+                            SampleBadge()
+                                .padding(4)
+                        }
                     }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(product.title)
+                            .font(.headline)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .foregroundStyle(.primary)
+
+                        Text(product.spec)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+
+                        HStack(spacing: 10) {
+                            Text(PriceFormatter.string(product.sellPrice))
+                                .font(.title3.bold())
+                                .foregroundStyle(AppTheme.accentDark)
+
+                            stockBadge
+                        }
+                    }
+
+                    Spacer(minLength: 0)
                 }
+                .padding(16)
 
-                Spacer(minLength: 0)
-            }
-            .padding(16)
+                Divider().padding(.horizontal, 16)
 
-            Divider().padding(.horizontal, 16)
-
-            Button(action: onSell) {
                 HStack {
                     Image(systemName: "bolt.fill")
                     Text(product.isOutOfStock ? "暂无库存" : "快速卖出")
@@ -105,13 +114,18 @@ struct ProductCardView: View {
                         AppTheme.heroGradient
                     }
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .disabled(product.isOutOfStock)
+            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .shadow(
+                color: .black.opacity(colorScheme == .dark ? 0.28 : 0.07),
+                radius: colorScheme == .dark ? 8 : 14,
+                x: 0,
+                y: colorScheme == .dark ? 2 : 5
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
-        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: .black.opacity(0.07), radius: 14, x: 0, y: 5)
+        .buttonStyle(.plain)
+        .disabled(product.isOutOfStock)
     }
 
     @ViewBuilder
